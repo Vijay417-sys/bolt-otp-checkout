@@ -208,6 +208,18 @@ else
   skip "Docker checks" "daemon not reachable from this shell"
 fi
 
+head_ "17. Ports the app expects are free"
+# Something else on 8080 makes the backend fail with
+# "Web server failed to start. Port 8080 was already in use." - a confusing
+# failure that looks like a bug in the app.
+for p in 8080 5173 3306; do
+  if command -v ss >/dev/null 2>&1 && ss -ltn 2>/dev/null | grep -q ":$p "; then
+    skip "port $p" "already in use - set PORT / VITE_API_BASE_URL to another port"
+  else
+    ok "port $p is free"
+  fi
+done
+
 printf '\n\033[1m========================================\033[0m\n'
 printf '  passed: %d   failed: %d   skipped: %d\n' "$PASS" "$FAIL" "$SKIP"
 printf '\033[1m========================================\033[0m\n'

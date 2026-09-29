@@ -41,6 +41,16 @@ Must print exactly `checkout_records` and `users`.
 
 ### Terminal 2 — backend
 
+**First check port 8080 is free.** If something else already has it, the backend
+dies with `Web server failed to start. Port 8080 was already in use.`
+
+```bash
+ss -ltn | grep ':8080 ' || echo "8080 is free"
+```
+
+If it is taken, pick another port — `PORT=8090` below and remember to use it in
+`VITE_API_BASE_URL` and `CORS_ALLOWED_ORIGIN` too.
+
 ```bash
 cd backend
 export DATABASE_URL="jdbc:mysql://localhost:3306/bolt_checkout?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8"
@@ -51,14 +61,15 @@ export CORS_ALLOWED_ORIGIN=http://localhost:5173
 mvn spring-boot:run
 ```
 
-Wait for `Started CheckoutApplication`. **If it fails, check the error** — the
-most likely cause is a `bolt` user that was never created, or a wrong password.
+Wait for `Started CheckoutApplication`. **If it fails, read the actual error** —
+the most likely causes are a `bolt` user that was never created, a wrong password,
+or the port above being taken.
 
 ```bash
 curl -s http://localhost:8080/api/health
 ```
 
-Must print `{"status":"UP"}`.
+Must print `{"status":"UP"}`. If you get HTML instead, something else owns 8080.
 
 ### Terminal 3 — frontend
 
@@ -231,13 +242,20 @@ The order row must still be there, with `user_id` now `NULL`.
 ### Constraints actually bite
 
 ```bash
-# unique email
+# unique email — pick an address that already EXISTS in `users`
 mysql -u bolt -pboltpw bolt_checkout -e \
   "INSERT INTO users (email,first_name,last_name,otp_hash) VALUES ('curl@example.com','A','B','x');"
 ```
 
 Expect `ERROR 1062 ... Duplicate entry`. This is what stops two simultaneous
 registrations for the same address.
+
+> Check `SELECT id, email FROM users;` first — a **guest checkout** email is *not*
+> in `users`, so inserting it will succeed and prove nothing.
+
+Because the column collation is `utf8mb4_unicode_ci`, an address differing only
+in case is also a duplicate, which matches how the application normalises email
+before it ever gets here.
 
 ```bash
 # NOT NULL
