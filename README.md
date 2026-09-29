@@ -639,12 +639,21 @@ docker run --rm -p 5173:80 bolt-otp-checkout-frontend
 
 ## Deployment
 
+> Step-by-step instructions, including the CORS ordering trap, are in
+> [`DEPLOY.md`](DEPLOY.md). Read that before deploying.
+
 Target architecture: Vercel → Render (Docker) → MySQL 8.
 
 ### 1. MySQL (database)
 
-1. Provision a MySQL 8 database (any provider, or a `mysql:8.4` container) and
-   create a dedicated application user.
+> **Deviation from the assignment, stated explicitly.** The assignment names
+> Supabase, which hosts **PostgreSQL only** — it cannot serve a MySQL database. This
+> project targets MySQL, so the database is hosted on a MySQL provider instead.
+> Using Supabase would mean reverting to PostgreSQL (driver, `schema.sql`, dialect,
+> compose file); the Java code above that layer is unaffected.
+
+1. Provision a MySQL 8 database (TiDB Cloud, Aiven, Railway, DigitalOcean, AWS RDS,
+   or your own server) and create a dedicated application user.
 2. Run `database/schema.sql` against it.
 3. Note the host, port, database name and credentials for step 2.
 
@@ -698,8 +707,10 @@ Grant **`boltapp-hiring`** collaborator access:
 
 This requires repository admin rights. It has **not** been performed from this
 environment — no GitHub credentials were available, so no repository was created
-or pushed. The CI workflow in `.github/workflows/ci.yml` is committed and will run
-once the repository is pushed; it has not been executed remotely.
+or pushed.
+
+> Automated CI is listed under *Production Improvements*; the suites are run
+> locally with `mvn test` and `npm test` rather than by a hosted workflow.
 
 ---
 
