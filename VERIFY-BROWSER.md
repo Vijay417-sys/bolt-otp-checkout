@@ -30,26 +30,33 @@ diagnose something. Three terminals, or use `&`:
 
 ### Terminal 1 — MySQL
 
-```bash
-# Only needed once per machine.
-mysql -u root -p <<'SQL'
-CREATE DATABASE IF NOT EXISTS bolt_checkout
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'bolt'@'localhost' IDENTIFIED BY 'boltpw';
-GRANT ALL PRIVILEGES ON bolt_checkout.* TO 'bolt'@'localhost';
-FLUSH PRIVILEGES;
-SQL
+Only needed once per machine. Run the three commands **one at a time** — each
+asks for your MySQL root password.
 
+```bash
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS bolt_checkout CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
+
+```bash
+mysql -u root -p -e "CREATE USER IF NOT EXISTS 'bolt'@'localhost' IDENTIFIED BY 'boltpw'; GRANT ALL PRIVILEGES ON bolt_checkout.* TO 'bolt'@'localhost'; FLUSH PRIVILEGES;"
+```
+
+```bash
 mysql -u root -p bolt_checkout < database/schema.sql
 ```
 
-Expect no output — that is success. To prove the schema applied:
+No output from those three is success. To prove the schema applied:
 
 ```bash
 mysql -u bolt -pboltpw bolt_checkout -e "SHOW TABLES;"
 ```
 
 Must print exactly `checkout_records` and `users`.
+
+> **If the terminal hangs on a `>` prompt**, a `<<'SQL'` heredoc was pasted and its
+> closing `SQL` did not match. Press `Ctrl+C`, then use the one-line commands
+> above. A mismatched heredoc terminator makes the shell wait forever and quietly
+> treats the next command as heredoc content.
 
 > Re-running the schema file is safe. Run it twice and you should still get no
 > error, because every statement is guarded. That idempotency is load-bearing:

@@ -107,14 +107,12 @@ elif ! mysql -h "$DB_HOST" -P "$DB_PORT" -u "$DB_USER" -p"$DB_PASSWORD" \
         -e "USE \`$DB_NAME\`;" >/dev/null 2>&1; then
   warn "cannot reach '$DB_NAME' as user '$DB_USER'"
   echo
-  echo "  If you have not set the database up yet, run this once:"
+  echo "  If the database is not set up yet, run these ONE AT A TIME"
+  echo "  (each asks for your MySQL root password):"
   echo
-  echo "    mysql -u root -p <<'SQL'"
-  echo "    CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-  echo "    CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASSWORD';"
-  echo "    GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost';"
-  echo "    FLUSH PRIVILEGES;"
-  echo "    SQL"
+  echo "    mysql -u root -p -e \"CREATE DATABASE IF NOT EXISTS $DB_NAME CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\""
+  echo
+  echo "    mysql -u root -p -e \"CREATE USER IF NOT EXISTS '$DB_USER'@'localhost' IDENTIFIED BY '$DB_PASSWORD'; GRANT ALL PRIVILEGES ON $DB_NAME.* TO '$DB_USER'@'localhost'; FLUSH PRIVILEGES;\""
   echo
   echo "    mysql -u root -p $DB_NAME < database/schema.sql"
   echo

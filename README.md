@@ -208,24 +208,34 @@ The first run takes a minute while Maven builds the jar.
 
 ### 1. Database
 
-The database must exist before `./run.sh` can start. This is the only manual step:
+The database must exist before `./run.sh` can start. This is the only manual step.
+Run the three commands **one at a time**; each asks for your MySQL root password.
 
 ```bash
-# Create the database, and a dedicated application user. The app never connects
-# as root - only the least-privilege `bolt` user owns the schema.
-mysql -u root -p <<'SQL'
-CREATE DATABASE IF NOT EXISTS bolt_checkout
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS 'bolt'@'localhost' IDENTIFIED BY 'boltpw';
-GRANT ALL PRIVILEGES ON bolt_checkout.* TO 'bolt'@'localhost';
-FLUSH PRIVILEGES;
-SQL
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS bolt_checkout CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+```
 
-# Apply the schema. Safe to re-run: every statement is guarded.
+```bash
+mysql -u root -p -e "CREATE USER IF NOT EXISTS 'bolt'@'localhost' IDENTIFIED BY 'boltpw'; GRANT ALL PRIVILEGES ON bolt_checkout.* TO 'bolt'@'localhost'; FLUSH PRIVILEGES;"
+```
+
+```bash
 mysql -u root -p bolt_checkout < database/schema.sql
 ```
 
-Use the same `bolt` / `boltpw` values below, or change both to match.
+Confirm it worked — this must print `checkout_records` and `users`:
+
+```bash
+mysql -u root -p -e "SHOW TABLES FROM bolt_checkout;"
+```
+
+> These are deliberately three separate one-liners rather than a `<<'SQL'` heredoc.
+> Pasting a heredoc into a terminal is easy to get wrong: if the `SQL` terminator
+> is not matched exactly, the shell sits waiting for more input and swallows the
+> next command as heredoc content.
+
+The app connects as the least-privilege `bolt` user, never as root. If you change
+that password, change it in both this step and `DATABASE_PASSWORD`.
 
 Or let Docker do it: `docker compose up -d db` — the compose file creates the
 user, mounts `database/schema.sql` as an init script, and waits for the server to
