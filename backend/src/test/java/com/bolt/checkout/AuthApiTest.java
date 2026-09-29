@@ -203,6 +203,21 @@ class AuthApiTest extends IntegrationTestBase {
                 .andExpect(jsonPath("$.status").value("UP"));
     }
 
+    // ---------------------------------------------------------------- 13
+    @Test
+    @DisplayName("13. An unmapped URL returns 404, not 500")
+    void unknownPathReturnsNotFound() throws Exception {
+        // Regression test. Spring throws NoResourceFoundException when nothing matches
+        // the path; without a dedicated handler it reached the catch-all and every
+        // unknown URL - including "/" - answered 500 and logged a stack trace.
+        for (String path : new String[]{"/", "/foo", "/api/nope", "/api/checkout/history"}) {
+            mockMvc.perform(get(path))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.status").value(404))
+                    .andExpect(jsonPath("$.path").value(path));
+        }
+    }
+
     private record RegistrationPayload(String email, String firstName, String lastName) {}
 
     private record VerifyPayload(String email, String code) {}

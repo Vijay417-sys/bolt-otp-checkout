@@ -12,6 +12,7 @@ import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
@@ -76,6 +77,23 @@ public class GlobalExceptionHandler {
     })
     public ResponseEntity<ErrorResponse> handleMalformedRequest(Exception ex, HttpServletRequest request) {
         return build(HttpStatus.BAD_REQUEST, "Invalid request", request);
+    }
+
+    /**
+     * An unmapped URL is a 404, not a server error.
+     *
+     * <p>Spring throws {@link NoResourceFoundException} when no handler matches. Without
+     * this method it falls through to the catch-all below, so every mistyped or unknown
+     * path - {@code /}, {@code /api/nope} - answered 500 and wrote a full stack trace to
+     * the log. A wrong URL is routine, and reporting it as a server fault both misleads
+     * the caller and buries real failures under noise.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<ErrorResponse> handleNoResource(NoResourceFoundException ex,
+                                                         HttpServletRequest request) {
+        // Not logged with a stack trace: nothing has gone wrong server-side.
+        log.debug("No handler for {} {}", request.getMethod(), request.getRequestURI());
+        return build(HttpStatus.NOT_FOUND, "Not found", request);
     }
 
     @ExceptionHandler(Exception.class)
