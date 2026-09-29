@@ -184,6 +184,29 @@ describe('CheckoutForm', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
+  it('re-runs recognition after the email is cleared and retyped', async () => {
+    const user = userEvent.setup();
+    recognizeUser.mockResolvedValue({ registered: true });
+    render(<CheckoutForm />);
+
+    await typeEmail(user, 'vijay@example.com');
+    await screen.findByRole('dialog', {}, { timeout: 3000 });
+    await user.click(screen.getByRole('button', { name: /skip login/i }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    recognizeUser.mockClear();
+
+    // Clear the field completely and type the very same address again. The
+    // debounced value ends up identical to the one already published, which used
+    // to leave the form permanently inactive.
+    const field = screen.getByLabelText(/^email/i);
+    await user.clear(field);
+    await user.type(field, 'vijay@example.com');
+
+    await waitFor(() => expect(recognizeUser).toHaveBeenCalledWith('vijay@example.com'), {
+      timeout: 3000,
+    });
+  });
+
   it('validates the checkout form before calling the API', async () => {
     const user = userEvent.setup();
     render(<CheckoutForm />);

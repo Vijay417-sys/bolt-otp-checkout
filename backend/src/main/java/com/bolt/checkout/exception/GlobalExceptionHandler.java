@@ -43,36 +43,6 @@ public class GlobalExceptionHandler {
         return build(HttpStatus.NOT_FOUND, ex.getMessage(), request);
     }
 
-    @ExceptionHandler(InvalidSessionTokenException.class)
-    public ResponseEntity<ErrorResponse> handleInvalidSession(InvalidSessionTokenException ex, HttpServletRequest request) {
-        return build(HttpStatus.UNAUTHORIZED, ex.getMessage(), request);
-    }
-
-    /**
-     * An expired code is reported as 401 like a wrong code, so the response does
-     * not tell an attacker whether the code they guessed was ever correct.
-     */
-    @ExceptionHandler(OtpExpiredException.class)
-    public ResponseEntity<ErrorResponse> handleOtpExpired(OtpExpiredException ex, HttpServletRequest request) {
-        return build(HttpStatus.UNAUTHORIZED, ex.getMessage(), request);
-    }
-
-    /**
-     * 429 with a Retry-After header, so a client can tell "come back later" apart
-     * from "that code was wrong" and stop hammering the endpoint.
-     */
-    @ExceptionHandler(OtpLockedException.class)
-    public ResponseEntity<ErrorResponse> handleOtpLocked(OtpLockedException ex, HttpServletRequest request) {
-        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
-                .header("Retry-After", String.valueOf(ex.getRetryAfterSeconds()))
-                .body(new ErrorResponse(
-                        LocalDateTime.now(),
-                        HttpStatus.TOO_MANY_REQUESTS.value(),
-                        ex.getMessage(),
-                        request.getRequestURI()
-                ));
-    }
-
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex, HttpServletRequest request) {
         String message = ex.getBindingResult().getFieldErrors().stream()

@@ -34,7 +34,14 @@ export default function CheckoutForm({ prefillEmail = '', onCheckoutSuccess }) {
   // Identifies the newest recognition request so stale responses are ignored.
   const requestIdRef = useRef(0);
 
-  const debouncedEmail = useDebounce(form.email, RECOGNITION_DELAY);
+  // Counts how many times the debounce has settled. Recognition keys off this
+  // counter rather than the debounced string, because clearing the field and
+  // retyping the same address settles on an identical string - React would see
+  // no change, and recognition would never run again for that email.
+  const [recognitionRun, setRecognitionRun] = useState(0);
+  const debouncedEmail = useDebounce(form.email, RECOGNITION_DELAY, () =>
+    setRecognitionRun((run) => run + 1)
+  );
 
   // Reset any completed login when the email changes to a different address.
   const previousEmailRef = useRef(normalizeEmail(form.email));
@@ -93,7 +100,9 @@ export default function CheckoutForm({ prefillEmail = '', onCheckoutSuccess }) {
     return () => {
       cancelled = true;
     };
-  }, [debouncedEmail]);
+    // recognitionRun is the trigger; debouncedEmail carries the value to send.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recognitionRun]);
 
   const updateField = (field) => (event) => {
     const { value } = event.target;
@@ -105,6 +114,16 @@ export default function CheckoutForm({ prefillEmail = '', onCheckoutSuccess }) {
       setSubmitSuccess('');
     }
   };
+
+  // Live email feedback (§23). Only once something has actually been typed, so
+  // the field is not scolding an empty box while the user is still on the first
+  // character, and only for a genuinely malformed address.
+  const trimmedEmail = form.email.trim();
+  const liveEmailError =
+    trimmedEmail.length > 0 && validateEmail(form.email)
+      ? validateEmail(form.email)
+      : '';
+  const showLiveEmailError = Boolean(liveEmailError) && !errors.email;
 
   const handleOtpSuccess = useCallback(
     (verifiedUser) => {
@@ -199,14 +218,14 @@ export default function CheckoutForm({ prefillEmail = '', onCheckoutSuccess }) {
             autoComplete="email"
             value={form.email}
             onChange={updateField('email')}
-            aria-invalid={Boolean(errors.email)}
+            aria-invalid={Boolean(errors.email || liveEmailError)}
             aria-describedby="checkout-email-status"
-            className={`field-input ${errors.email ? 'field-input-error' : ''}`}
+            className={`field-input ${errors.email || liveEmailError ? 'field-input-error' : ''}`}
             placeholder="you@example.com"
           />
-          {errors.email ? (
+          {errors.email || showLiveEmailError ? (
             <p role="alert" className="mt-1.5 text-xs font-medium text-red-700">
-              {errors.email}
+              {errors.email || liveEmailError}
             </p>
           ) : (
             <div id="checkout-email-status" aria-live="polite">

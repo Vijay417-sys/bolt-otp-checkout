@@ -1,10 +1,11 @@
 # Bolt OTP Checkout API
 #
-# Machine-readable spec, identical in content to openapi.json. Generated from it, so
-# the two cannot drift apart - edit openapi.json and regenerate.
+# Machine-readable spec, identical in content to openapi.json, which it is generated
+# from so the two cannot drift apart.
 #
-# Note: this file previously claimed to be Swagger 2.0 while being written in JSON
-# syntax, and openapi.json was OpenAPI 3.0.3. The mismatch is resolved: both are now
+# Note: this file previously declared `"openapi": "2.0.0"` (Swagger 2.0) while being
+# written in JSON syntax despite the .yaml extension, and openapi.json was OpenAPI
+# 3.0.3 - the README pointed at both as "the spec", and they disagreed. Both are now
 # OpenAPI 3.0.3.
 $schema: https://openapi.org/schema/3.0.0.json
 openapi: 3.0.3
@@ -110,17 +111,6 @@ paths:
                     registered: false
         '400':
           $ref: '#/components/responses/BadRequest'
-        '429':
-          description: Too many requests from this IP. A Retry-After header gives the wait in seconds.
-          headers:
-            Retry-After:
-              description: Seconds to wait before retrying.
-              schema:
-                type: integer
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
   /api/auth/verify:
     post:
       summary: Verify a 6-digit login code and sign the user in
@@ -165,39 +155,16 @@ paths:
                     type: string
                     description: Short-lived HMAC-signed token. Send as the X-Session-Token header on
                       checkout.
-                  nextCode:
-                    type: string
-                    pattern: ^\d{6}$
-                    example: '550214'
-                    description: A freshly rotated login code. The code is rotated on every successful
-                      login, so a code that leaked from the registration screen cannot be replayed. It
-                      is returned here because the assignment requires codes to be shown on screen and
-                      never emailed or texted - this response is the only channel by which the replacement
-                      reaches the user.
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
-          description: Incorrect code, or the code has expired. The two are deliberately not distinguished
-            beyond the message, so a caller cannot tell a guess that was once correct from one that never
-            was.
+          description: Incorrect code
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
         '404':
           description: No account for that email
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '429':
-          description: Too many incorrect codes for this account, or too many requests from this IP. A
-            Retry-After header gives the wait in seconds.
-          headers:
-            Retry-After:
-              description: Seconds to wait before retrying.
-              schema:
-                type: integer
           content:
             application/json:
               schema:
@@ -250,53 +217,6 @@ paths:
                     example: Checkout submitted successfully
         '400':
           $ref: '#/components/responses/BadRequest'
-  /api/checkout/history:
-    get:
-      summary: Paged order history for the signed-in user, newest first
-      description: 'Requires a valid X-Session-Token. There is deliberately no guest path: an unauthenticated
-        caller could otherwise read another account''s orders by guessing an email. Without a token this
-        is 401 rather than an empty page, so "no orders" stays distinguishable from "not signed in".'
-      parameters:
-      - name: X-Session-Token
-        in: header
-        required: true
-        schema:
-          type: string
-        description: Token issued by POST /api/auth/verify.
-      - name: page
-        in: query
-        required: false
-        schema:
-          type: integer
-          minimum: 0
-          default: 0
-      - name: size
-        in: query
-        required: false
-        schema:
-          type: integer
-          minimum: 1
-          maximum: 100
-          default: 20
-      responses:
-        '200':
-          description: One page of order history
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CheckoutHistory'
-        '400':
-          description: page or size outside the allowed range
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-        '401':
-          description: Missing or invalid session token
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
 components:
   schemas:
     ErrorResponse:
@@ -314,50 +234,6 @@ components:
         path:
           type: string
           example: /api/auth/register
-    CheckoutHistory:
-      type: object
-      properties:
-        orders:
-          type: array
-          items:
-            $ref: '#/components/schemas/OrderSummary'
-        page:
-          type: integer
-          example: 0
-        size:
-          type: integer
-          example: 20
-        totalElements:
-          type: integer
-          format: int64
-          example: 42
-        totalPages:
-          type: integer
-          example: 3
-        first:
-          type: boolean
-          example: true
-        last:
-          type: boolean
-          example: false
-    OrderSummary:
-      type: object
-      properties:
-        id:
-          type: integer
-          format: int64
-          example: 1
-        email:
-          type: string
-          format: email
-        phone:
-          type: string
-          example: '+919876543210'
-        shippingAddress:
-          type: string
-        createdAt:
-          type: string
-          format: date-time
   responses:
     BadRequest:
       description: Validation failed
