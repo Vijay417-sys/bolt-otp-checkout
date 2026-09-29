@@ -1,0 +1,182 @@
+{
+  "$schema": "https://openapi.org/schema/2.0.0.json",
+  "openapi": "2.0.0",
+  "info": {
+    "title": "Bolt OTP Checkout API",
+    "version": "1.0.0",
+    "description": "Registration with generated 6-digit login codes, background email recognition, OTP verification and checkout persistence."
+  },
+  "host": "localhost:8080",
+  "basePath": "/",
+  "schemes": ["https", "http"],
+  "consumes": ["application/json"],
+  "produces": ["application/json"],
+  "paths": {
+    "/api/health": {
+      "get": {
+        "summary": "Liveness probe used by deployment platforms",
+        "responses": {
+          "200": {
+            "description": "Service is up",
+            "schema": {
+              "type": "object",
+              "properties": { "status": { "type": "string", "example": "UP" } }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "summary": "Register a user and issue a 6-digit login code",
+        "description": "The plain code is returned only here so the UI can display it. Only its BCrypt hash is stored.",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["email", "firstName", "lastName"],
+              "properties": {
+                "email": { "type": "string", "example": "vijay@example.com" },
+                "firstName": { "type": "string", "example": "Vijay" },
+                "lastName": { "type": "string", "example": "Hosapeti" }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Registered",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "message": { "type": "string", "example": "Registration successful" },
+                "code": { "type": "string", "example": "482193" }
+              }
+            }
+          },
+          "400": { "description": "Validation failed", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "409": {
+            "description": "Email already registered",
+            "schema": { "$ref": "#/definitions/ErrorResponse" }
+          }
+        }
+      }
+    },
+    "/api/auth/recognize": {
+      "get": {
+        "summary": "Check whether an email belongs to a registered user",
+        "description": "Called in the background by the checkout form. Returns nothing beyond a boolean so no personal data is exposed.",
+        "parameters": [
+          { "in": "query", "name": "email", "required": true, "type": "string" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Recognition result",
+            "schema": {
+              "type": "object",
+              "properties": { "registered": { "type": "boolean" } }
+            }
+          },
+          "400": { "description": "Validation failed", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
+      }
+    },
+    "/api/auth/verify": {
+      "post": {
+        "summary": "Verify a 6-digit login code and sign the user in",
+        "parameters": [
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["email", "code"],
+              "properties": {
+                "email": { "type": "string", "example": "vijay@example.com" },
+                "code": { "type": "string", "example": "482193" }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Code accepted",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": { "type": "boolean", "example": true },
+                "userId": { "type": "integer", "example": 1 },
+                "firstName": { "type": "string", "example": "Vijay" },
+                "lastName": { "type": "string", "example": "Hosapeti" },
+                "sessionToken": {
+                  "type": "string",
+                  "description": "Short-lived HMAC-signed token. Send as the X-Session-Token header on checkout."
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation failed", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "401": { "description": "Incorrect code", "schema": { "$ref": "#/definitions/ErrorResponse" } },
+          "404": { "description": "No account for that email", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
+      }
+    },
+    "/api/checkout": {
+      "post": {
+        "summary": "Persist a checkout record",
+        "description": "With a valid X-Session-Token the record is linked to the authenticated user; otherwise user_id is null (guest checkout). No payment processing is performed.",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Session-Token",
+            "required": false,
+            "type": "string",
+            "description": "Token returned by POST /api/auth/verify."
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "required": ["email", "phone", "shippingAddress"],
+              "properties": {
+                "email": { "type": "string", "example": "vijay@example.com" },
+                "phone": { "type": "string", "example": "+919876543210" },
+                "shippingAddress": { "type": "string", "example": "Bengaluru, Karnataka, India" }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Saved",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "success": { "type": "boolean", "example": true },
+                "message": { "type": "string", "example": "Checkout submitted successfully" }
+              }
+            }
+          },
+          "400": { "description": "Validation failed", "schema": { "$ref": "#/definitions/ErrorResponse" } }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "ErrorResponse": {
+      "type": "object",
+      "properties": {
+        "timestamp": { "type": "string", "format": "date-time" },
+        "status": { "type": "integer", "example": 400 },
+        "message": { "type": "string", "example": "Invalid email address" },
+        "path": { "type": "string", "example": "/api/auth/register" }
+      }
+    }
+  }
+}
