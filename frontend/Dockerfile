@@ -23,5 +23,13 @@ RUN npm run build
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
+# nginx.conf `include`s this path, so the file has to exist in the image or the
+# server refuses to start.
+COPY security-headers.conf /etc/nginx/snippets/security-headers.conf
+
+# Fail the build rather than the deploy if the config is malformed or the include
+# path is wrong - a broken `include` is otherwise only discovered at container start.
+RUN nginx -t
+
 EXPOSE 80
 CMD ["nginx", "-g", "daemon off;"]

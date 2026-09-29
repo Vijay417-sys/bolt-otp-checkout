@@ -72,7 +72,7 @@ export default function App() {
       </main>
 
       <footer className="border-t border-slate-200 bg-white px-4 py-4 text-center text-xs text-slate-500">
-        Bolt OTP Checkout &middot; React + Spring Boot + PostgreSQL
+        Bolt OTP Checkout &middot; React + Spring Boot + MySQL
       </footer>
     </div>
   );

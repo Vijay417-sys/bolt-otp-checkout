@@ -1,11 +1,11 @@
 # Bolt OTP Checkout
 
-OTP-based user login and checkout — React (JavaScript) + Spring Boot + PostgreSQL.
+OTP-based user login and checkout — React (JavaScript) + Spring Boot + MySQL.
 
 A user registers and receives a 6-digit login code. At checkout, typing a
 registered email triggers a debounced background lookup; if the account is found
 an OTP modal asks for the code, otherwise the user continues as a guest. Both
-paths persist a checkout record to PostgreSQL.
+paths persist a checkout record to MySQL.
 
 ---
 
@@ -15,9 +15,9 @@ paths persist a checkout record to PostgreSQL.
 |---|---|
 | **Frontend** | React 18 + JavaScript (ES6+) + Vite + Tailwind CSS |
 | **Backend** | Java 21, Spring Boot 3.4, Spring Data JPA, Hibernate |
-| **Database** | PostgreSQL 14+ (Supabase in production) |
-| **Tests** | 38 backend (JUnit 5 + MockMvc), 57 frontend (Vitest + Testing Library) |
-| **Deploy** | Vercel (frontend) · Render + Docker (backend) · Supabase (PostgreSQL) |
+| **Database** | MySQL 8+ |
+| **Tests** | 72 backend (JUnit 5 + MockMvc), 57 frontend (Vitest + Testing Library) |
+| **Deploy** | Vercel (frontend) · Render + Docker (backend) · MySQL 8 |
 
 ---
 
@@ -67,12 +67,12 @@ paths persist a checkout record to PostgreSQL.
 │  Render — Spring Boot (Docker)│
 │                              │
 │  controller → service →      │
-│  repository → PostgreSQL     │
+│  repository → MySQL          │
 └──────────────┬───────────────┘
                │  JDBC / JPA
                ▼
 ┌──────────────────────────────┐
-│  Supabase — PostgreSQL       │
+│  MySQL 8                     │
 │  users, checkout_records     │
 └──────────────────────────────┘
 ```
@@ -96,17 +96,23 @@ com.bolt.checkout
 │   └── CheckoutController
 ├── service/      business logic
 │   ├── AuthService          OTP generation, hashing, recognition, verification
-│   ├── CheckoutService      checkout persistence
-│   └── SessionTokenService  HMAC-signed session tokens
+│   ├── CheckoutService      checkout persistence, paged history
+│   ├── SessionTokenService  HMAC-signed session tokens
+│   ├── OtpAttemptService    failed-attempt counting, committed independently
+│   ├── AuditService         security event trail
+│   └── RateLimiter          in-process fixed-window limiter
 ├── repository/   Spring Data JPA
 │   ├── UserRepository
-│   └── CheckoutRepository
+│   ├── CheckoutRepository
+│   └── AuditLogRepository
 ├── entity/       JPA mappings
 │   ├── User
-│   └── CheckoutRecord
+│   ├── CheckoutRecord
+│   └── AuditLog
 ├── dto/          request/response records — entities are never exposed
 ├── exception/    typed exceptions + @RestControllerAdvice
-└── config/       CorsConfig, SecurityConfig (BCrypt bean only)
+└── config/       CorsConfig, SecurityConfig (BCrypt bean only),
+                  RateLimitConfig + RateLimitFilter, RequestObservabilityFilter
 ```
 
 ### Frontend structure
@@ -136,7 +142,7 @@ src
 Testing Library, Vitest. No state library; React hooks only.
 
 **Backend** — Java 21, Spring Boot 3.4, Spring Web, Spring Data JPA, Hibernate,
-Jakarta Bean Validation, `spring-security-crypto` (BCrypt only), PostgreSQL JDBC.
+Jakarta Bean Validation, `spring-security-crypto` (BCrypt only), MySQL JDBC.
 
 > The full `spring-boot-starter-security` auto-configuration is deliberately **not**
 > used. The assignment targets the OTP flow, not an enterprise auth stack, and
@@ -180,26 +186,28 @@ bolt-otp-checkout/
 
 ## Local Setup
 
-**Prerequisites** — Java 21, Maven 3.8+, Node 18+ (22 recommended), PostgreSQL 14+
+**Prerequisites** — Java 21, Maven 3.8+, Node 18+ (22 recommended), MySQL 8+
 (or Docker).
 
 ### 1. Database
 
 ```bash
-createdb bolt_checkout
-psql bolt_checkout -f database/schema.sql
+mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS bolt_checkout;"
+mysql -u root -p bolt_checkout < database/schema.sql
 ```
 
-Or let Docker do it: `docker compose up -d db`.
+Or let Docker do it: `docker compose up -d db` — the compose file mounts
+`database/schema.sql` as an init script and waits for the server to become
+healthy.
 
 ### 2. Backend
 
 ```bash
 cd backend
 cp .env.example .env        # then fill in the values
-export DATABASE_URL="jdbc:postgresql://localhost:5432/bolt_checkout"
-export DATABASE_USERNAME=postgres
-export DATABASE_PASSWORD=postgres
+export DATABASE_URL="jdbc:mysql://localhost:3306/bolt_checkout?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8"
+export DATABASE_USERNAME=bolt_app
+export DATABASE_PASSWORD=your-password
 export SESSION_TOKEN_SECRET="$(openssl rand -base64 48)"
 mvn spring-boot:run
 ```
@@ -224,7 +232,7 @@ cp backend/.env.example backend/.env   # optional; compose has local defaults
 docker compose up --build
 ```
 
-Frontend <http://localhost:5173>, API <http://localhost:8080>, Postgres on `5432`.
+Frontend <http://localhost:5173>, API <http://localhost:8080>, MySQL on `3306`.
 
 > **Note:** if port 8080 is already taken on your machine, set `PORT=8081` for the
 > backend and point `VITE_API_BASE_URL` at `http://localhost:8081`.
@@ -250,6 +258,12 @@ Frontend <http://localhost:5173>, API <http://localhost:8080>, Postgres on `5432
 | `SESSION_TOKEN_SECRET` | Yes | HMAC signing secret. Generate with `openssl rand -base64 48`. |
 | `DB_POOL_SIZE` | No | HikariCP pool size (default `5`). |
 | `PORT` | No | HTTP port (default `8080`; Render sets it automatically). |
+| `OTP_TTL_MINUTES` | No | Login-code lifetime (default `10`). |
+| `OTP_MAX_ATTEMPTS` | No | Wrong codes per account before lockout (default `5`). |
+| `OTP_LOCKOUT_MINUTES` | No | Lockout window (default `15`). |
+| `RATE_LIMIT_VERIFY_PER_MINUTE` | No | Per-IP limit on `/verify` (default `10`; `0` disables). |
+| `RATE_LIMIT_RECOGNIZE_PER_MINUTE` | No | Per-IP limit on `/recognize` (default `60`; `0` disables). |
+| `HSTS_ENABLED` | No | Send HSTS over secure requests (default `false`; forced on by `prod`). |
 
 No real credentials are committed. `.env` files are git-ignored; only
 `.env.example` files are tracked.
@@ -258,61 +272,73 @@ No real credentials are committed. `.env` files are git-ignored; only
 
 ## Database Setup
 
-`database/schema.sql` is the authoritative schema and runs on a clean PostgreSQL
+`database/schema.sql` is the authoritative schema and runs on a clean MySQL 8
 database.
 
 ```sql
-CREATE TABLE users (
-    id           BIGSERIAL PRIMARY KEY,
-    email        VARCHAR(255) NOT NULL,
-    first_name   VARCHAR(100) NOT NULL,
-    last_name    VARCHAR(100) NOT NULL,
-    otp_hash     VARCHAR(255) NOT NULL,      -- BCrypt hash, never the plain code
-    created_at   TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS users (
+    id         BIGINT       NOT NULL AUTO_INCREMENT,
+    email      VARCHAR(255) NOT NULL,
+    first_name VARCHAR(100) NOT NULL,
+    last_name  VARCHAR(100) NOT NULL,
+    otp_hash   VARCHAR(255) NOT NULL,   -- BCrypt hash, never the plain code
+    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
     CONSTRAINT uq_users_email UNIQUE (email)
-);
-CREATE INDEX idx_users_email ON users (email);
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 
-CREATE TABLE checkout_records (
-    id               BIGSERIAL PRIMARY KEY,
-    user_id          BIGINT,                  -- NULL for guest checkout
-    email            VARCHAR(255) NOT NULL,
-    phone            VARCHAR(50)  NOT NULL,
-    shipping_address TEXT         NOT NULL,
-    created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+CREATE TABLE IF NOT EXISTS checkout_records (
+    id               BIGINT        NOT NULL AUTO_INCREMENT,
+    user_id          BIGINT        NULL,   -- NULL for guest checkout
+    email            VARCHAR(255)  NOT NULL,
+    phone            VARCHAR(50)   NOT NULL,
+    shipping_address VARCHAR(1000) NOT NULL,
+    created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_checkout_email (email),
+    INDEX idx_checkout_user_id (user_id),
     CONSTRAINT fk_checkout_user FOREIGN KEY (user_id)
         REFERENCES users (id) ON DELETE SET NULL
-);
-CREATE INDEX idx_checkout_email   ON checkout_records (email);
-CREATE INDEX idx_checkout_user_id ON checkout_records (user_id);
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
 ```
 
 **Design notes**
 
-- `BIGSERIAL` (not `SERIAL`) — `SERIAL` is a 32-bit `integer` while the JPA
-  entities use `Long`, so `ddl-auto=validate` would reject the schema at startup.
-  This was a real bug caught by the test suite.
+- `InnoDB` — required for the foreign key and for `ON DELETE SET NULL`; MyISAM
+  silently ignores both.
+- `utf8mb4_unicode_ci` — 4-byte Unicode, and a case-insensitive collation, which
+  is what makes the `uq_users_email` uniqueness check case-insensitive. The
+  backend also normalises emails to lowercase, so the two agree.
+- `AUTO_INCREMENT` — matches `GenerationType.IDENTITY` on the JPA `@Id`, so
+  Hibernate reads the key back from the driver instead of maintaining a separate
+  sequence table.
 - `ON DELETE SET NULL` — deleting a user never destroys order history; the record
   simply becomes a guest checkout.
 - `uq_users_email` — enforces uniqueness at the database level, so two concurrent
   registrations cannot both succeed.
-- `idx_users_email` — the recognition endpoint queries by email on every debounced
-  keystroke.
+- **No separate index on `users.email`** — the `UNIQUE` constraint already creates
+  one, and the recognition endpoint queries by email on every debounced keystroke.
+- **Indexes are declared inline** — MySQL has no `CREATE INDEX IF NOT EXISTS`, so
+  separate `CREATE INDEX` statements would not be idempotent and a second run of
+  the script would fail. Keeping them inside `CREATE TABLE` means the
+  `IF NOT EXISTS` guard covers them too.
 
-### Supabase
+### Managed MySQL
 
-Supabase is used purely as **PostgreSQL hosting** — Supabase Auth is not used, and
-the application connects over standard JDBC/JPA.
+Any MySQL 8 provider works — PlanetScale, AWS RDS, Aiven, DigitalOcean, or a
+self-hosted `mysql:8.4` container. There is no vendor-specific integration: the
+application connects over standard JDBC/JPA.
 
-1. Create a project.
-2. **Settings → Database → Connection string → URI**. If your network has no IPv6,
-   use the **Session pooler** host (`aws-0-<region>.pooler.supabase.com`).
-3. **SQL Editor** → paste and run `database/schema.sql`.
-4. **Settings → Database → Reset** (only if you need to start over) — this
-   re-runs `schema.sql` if it was mounted as an init script.
+1. Create a MySQL 8 database and a dedicated application user.
+2. Run `database/schema.sql` against it (via the provider's SQL console, a client
+   from your machine, or a one-off `mysql` container).
+3. Set `DATABASE_URL`, `DATABASE_USERNAME` and `DATABASE_PASSWORD` from the
+   credentials it gave you.
 
-Set `DATABASE_URL`, `DATABASE_USERNAME` (usually `postgres`) and
-`DATABASE_PASSWORD` from that connection string.
+Most managed providers terminate TLS. In that case use
+`?useSSL=true&serverTimezone=UTC` and drop `allowPublicKeyRetrieval`, which is
+only needed for MySQL 8's `caching_sha2_password` handshake over a plaintext
+connection.
 
 ---
 
@@ -401,7 +427,8 @@ curl -X POST http://localhost:8080/api/auth/verify \
   "userId": 1,
   "firstName": "Vijay",
   "lastName": "Hosapeti",
-  "sessionToken": "MXxWbWxxWVhrfFNHOXpZWEJsZEdrfGRtbHFZWGxB..."
+  "sessionToken": "MXxWbWxxWVhrfFNHOXpZWEJsZEdrfGRtbHFZWGxB...",
+  "nextCode": "550214"
 }
 ```
 `200 OK`
@@ -409,11 +436,17 @@ curl -X POST http://localhost:8080/api/auth/verify \
 | Status | When |
 |---|---|
 | `400` | Code is not exactly 6 digits |
-| `401` | Code does not match |
+| `401` | Code does not match, **or** it has expired |
 | `404` | No account for that email |
+| `429` | Too many wrong codes for this account, or this IP is rate limited. `Retry-After` gives the wait. |
 
 The `sessionToken` is a short-lived HMAC-SHA256 signed token. Send it as
 `X-Session-Token` on `POST /api/checkout` to link the order to the user.
+
+`nextCode` is a **freshly rotated** login code: the code you just used stops working, so
+one captured from the registration screen cannot be replayed. It is returned in this
+response because the assignment requires codes to be shown on screen and never emailed or
+texted — this is the only channel by which the replacement can reach the user.
 
 ---
 
@@ -434,6 +467,43 @@ curl -X POST http://localhost:8080/api/checkout \
 
 Omit the header (or send an invalid one) and the record is stored as a guest
 checkout with `user_id = null`.
+
+---
+
+### `GET /api/checkout/history`
+
+Paged order history for the signed-in user, newest first. Requires a valid session
+token — there is deliberately no guest path, because an unauthenticated caller could
+otherwise read another account's orders by guessing an email.
+
+```bash
+curl "http://localhost:8080/api/checkout/history?page=0&size=20" \
+  -H "X-Session-Token: $TOKEN"
+```
+```json
+{
+  "orders": [
+    {
+      "id": 42,
+      "email": "vijay@example.com",
+      "phone": "+919876543210",
+      "shippingAddress": "Bengaluru, Karnataka, India",
+      "createdAt": "2026-09-29T10:20:30"
+    }
+  ],
+  "page": 0, "size": 20, "totalElements": 1, "totalPages": 1,
+  "first": true, "last": true
+}
+```
+`200 OK`
+
+| Status | When |
+|---|---|
+| `400` | `page` below 0, or `size` outside 1–100 |
+| `401` | Missing or invalid session token |
+
+A signed-in user with no orders gets `200` with an empty `orders` array, not `401` — so
+"no orders" stays distinguishable from "not signed in".
 
 ---
 
@@ -473,7 +543,7 @@ lookup — so `Vijay@Example.com` and `vijay@example.com` are the same account.
 
 ## Testing
 
-### Backend — 38 tests
+### Backend — 72 tests
 
 ```bash
 cd backend
@@ -485,13 +555,33 @@ mvn test
 | `AuthApiTest` | 12 | Registration (success, duplicate 409, invalid 400, normalisation, hash-only storage), recognition (registered/unknown), verification (correct, wrong 401, malformed 400, unknown 404), health |
 | `CheckoutApiTest` | 8 | Guest checkout (`user_id` null), authenticated checkout, forged token fallback, validation 400, malformed JSON, repeated orders, history preserved on user delete |
 | `AuthServiceTest` | 9 | 2,000 generated codes are always 6 digits, codes differ, hash matches, BCrypt salting, case-insensitive duplicates, typed exceptions, name trimming |
+| `OtpSecurityTest` | 12 | Code expiry, lockout after repeated wrong codes, lockout expiry, counter reset on success, code rotation and its hash-only storage, audit trail contents (and that it never holds a code) |
+| `CheckoutHistoryTest` | 7 | History requires a valid token, is scoped to the signed-in user, paging and page-size cap, empty history, checkout audit row carries no address or phone |
 | `SessionTokenServiceTest` | 5 | Round-trip, tampered payload, tampered signature, malformed tokens, opacity |
+| `RateLimiterTest` | 5 | Allow up to the limit then refuse, per-client isolation, zero disables, reset |
+| `RateLimitFilterTest` | 5 | 429 body shape and `Retry-After`, separate budgets per endpoint, keyed on the forwarded client address, unrelated paths untouched |
+| `RequestObservabilityFilterTest` | 5 | Request id generated/echoed/rejected, MDC set and cleared, security headers, HSTS only over HTTPS and only when enabled |
 | `SessionTokenSecretGuardTest` | 4 | Refuses to start on the prod profile with the development default secret |
 
-The test profile loads the **real `database/schema.sql`** into H2 in PostgreSQL
-compatibility mode and runs Hibernate with `validate` — the same setting as
-production. This means the suite fails if the committed schema and the JPA
-entities ever diverge, which is exactly how the `SERIAL`/`bigint` bug was caught.
+The test profile loads the **real `database/schema.sql`** into H2 in MySQL
+compatibility mode (`MODE=MySQL`) and runs Hibernate with `validate` — the same
+setting as production. This means the suite fails if the committed schema and the
+JPA entities ever diverge, which is how the `SERIAL`/`bigint` bug was originally
+caught.
+
+> Because the schema file is applied on every Spring context startup, the test
+> suite is written so that only **one** Spring context is created per JVM. Any
+> test that needs different properties builds its objects directly (see
+> `SessionTokenSecretGuardTest`) rather than adding a `@TestPropertySource`,
+> which would trigger a second context and re-run `schema.sql`.
+
+> **The integration tests are deliberately not `@Transactional`.** Recording a
+> failed login code and writing an audit row each commit in their own
+> transaction, because the exception raised by a wrong code would otherwise roll
+> the write back along with the failed request. A single rolled-back test
+> transaction would hide that behaviour behind the shared test fixture, so
+> isolation is done by truncating in `@BeforeEach` instead — which is closer to
+> how the application actually runs.
 
 ### Frontend — 57 tests
 
@@ -502,10 +592,10 @@ npm test
 
 | Suite | Tests | Covers |
 |---|---|---|
-| `CheckoutForm.test.jsx` | 16 | Invalid email triggers no request, one debounced request, modal opens, digits-only, wrong-code error, correct-code login, skip login, no modal reopen, session token sent, background typing, recognition failure |
-| `OtpModal.test.jsx` | 11 | Dialog semantics, autofocus, digit spreading, paste, duplicate-submit guard, focus restored after failure, Escape |
+| `CheckoutForm.test.jsx` | 17 | Invalid email triggers no request, one debounced request, modal opens, digits-only, wrong-code error, correct-code login, skip login, no modal reopen, session token sent, background typing, recognition failure |
+| `OtpModal.test.jsx` | 12 | Dialog semantics, autofocus, digit spreading, paste, duplicate-submit guard, focus restored after failure, Escape |
 | `RegistrationForm.test.jsx` | 7 | Renders, validation, API call, code display, error surfacing, loading state |
-| `validation.test.js` | 15 | Every validator, edge cases, whole-form aggregation |
+| `validation.test.js` | 17 | Every validator, edge cases, whole-form aggregation |
 | `useDebounce.test.js` | 4 | Delay respected, rapid changes publish only the final value |
 
 ### Manual end-to-end
@@ -526,9 +616,9 @@ the deliberate `401` (wrong OTP) and `409` (duplicate email). See
 cd backend
 docker build -t bolt-otp-checkout-backend .
 docker run --rm -p 8080:8080 \
-  -e DATABASE_URL=jdbc:postgresql://host.docker.internal:5432/bolt_checkout \
-  -e DATABASE_USERNAME=postgres \
-  -e DATABASE_PASSWORD=postgres \
+  -e DATABASE_URL="jdbc:mysql://host.docker.internal:3306/bolt_checkout?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
+  -e DATABASE_USERNAME=bolt_app \
+  -e DATABASE_PASSWORD=your-password \
   -e CORS_ALLOWED_ORIGIN=http://localhost:5173 \
   -e SESSION_TOKEN_SECRET="$(openssl rand -base64 48)" \
   bolt-otp-checkout-backend
@@ -552,14 +642,14 @@ docker run --rm -p 5173:80 bolt-otp-checkout-frontend
 
 ## Deployment
 
-Target architecture: Vercel → Render (Docker) → Supabase PostgreSQL.
+Target architecture: Vercel → Render (Docker) → MySQL 8.
 
-### 1. Supabase (database)
+### 1. MySQL (database)
 
-1. Create a project, then open **Settings → Database** and copy the **URI**
-   (Session pooler if IPv6 is unavailable).
-2. Run `database/schema.sql` in the **SQL Editor**.
-3. Keep the credentials handy for step 2.
+1. Provision a MySQL 8 database (any provider, or a `mysql:8.4` container) and
+   create a dedicated application user.
+2. Run `database/schema.sql` against it.
+3. Note the host, port, database name and credentials for step 2.
 
 ### 2. Render (backend)
 
@@ -571,18 +661,20 @@ Target architecture: Vercel → Render (Docker) → Supabase PostgreSQL.
 
    | Key | Value |
    |---|---|
-   | `DATABASE_URL` | Supabase URI (`jdbc:postgresql://…`) |
-   | `DATABASE_USERNAME` | `postgres` |
-   | `DATABASE_PASSWORD` | your Supabase password |
+   | `DATABASE_URL` | `jdbc:mysql://<host>:3306/bolt_checkout?useSSL=true&serverTimezone=UTC` |
+   | `DATABASE_USERNAME` | your MySQL application user |
+   | `DATABASE_PASSWORD` | your MySQL password |
    | `CORS_ALLOWED_ORIGIN` | `https://<your-vercel-domain>` |
    | `SESSION_TOKEN_SECRET` | `openssl rand -base64 48` |
 
 3. **Health Check Path**: `/api/health`
 4. Deploy and note the URL, e.g. `https://bolt-otp-checkout-backend.onrender.com`.
 
-> Supabase may require the **Transaction pooler** (port `6543`) for sustained
-> connections; the Session pooler (port `5432`) is enough for this workload.
-> Allow-list Render's outbound IPs in Supabase if you have enabled IP restrictions.
+> If your provider does not terminate TLS, add `allowPublicKeyRetrieval=true` to
+> `DATABASE_URL` — MySQL 8's default `caching_sha2_password` authentication needs
+> it on a plaintext connection. Allow-list Render's outbound IPs if your provider
+> supports IP restrictions, and confirm the pool size (`DB_POOL_SIZE`, default
+> `5`) fits within your plan's connection limit.
 
 ### 3. Vercel (frontend)
 
@@ -609,7 +701,8 @@ Grant **`boltapp-hiring`** collaborator access:
 
 This requires repository admin rights. It has **not** been performed from this
 environment — no GitHub credentials were available, so no repository was created
-or pushed. See *Known Limitations*.
+or pushed. The CI workflow in `.github/workflows/ci.yml` is committed and will run
+once the repository is pushed; it has not been executed remotely.
 
 ---
 
@@ -666,6 +759,36 @@ and the deployed Vercel domain in production. Wildcard `*` is never used in the
 committed configuration, and `allowedHeaders` is an explicit list
 (`Content-Type`, `X-Session-Token`) rather than `*`.
 
+### Login-code hardening
+
+A 6-digit code has a million possible values, so a single BCrypt comparison is not enough
+on its own. Four independent controls apply, and none of them is sufficient alone:
+
+| Control | Scope | Response when triggered |
+|---|---|---|
+| 10-minute expiry | Per code | `401`, checked **before** the hash comparison |
+| 5 attempts, then a 15-minute lock | Per account | `429` + `Retry-After` |
+| Per-IP rate limit | Per address | `429` + `Retry-After` |
+| Rotation on success | Per code | old code silently stops working |
+
+Two details are deliberate and worth stating, because the obvious alternative is worse:
+
+- **The attempt that trips the lockout still reports "invalid code"**, not "locked".
+  Announcing the lock immediately would confirm to an attacker that their guesses were
+  being counted. The `429` arrives on the *next* attempt.
+- **An expired code and a wrong code are both `401`.** Distinguishing them would tell an
+  attacker whether the code they guessed was ever correct.
+
+**Expiry fails closed.** A `null` expiry is treated as expired, never as valid forever,
+and the column is `NOT NULL` so the database rejects it too.
+
+Failed-attempt counting and audit writes commit in their own transaction
+(`REQUIRES_NEW`). This is not incidental: `verifyOtp` is transactional and throws when the
+code is wrong, so a counter incremented on the caller's transaction would be rolled back
+along with the failed request and brute-force limiting would never engage. The unit tests
+for this are deliberately not wrapped in a single rolled-back test transaction, which
+would hide the behaviour.
+
 ### Session token
 
 A successful OTP verification returns a compact HMAC-SHA256 signed, 30-minute
@@ -677,19 +800,52 @@ session strategy a production system would need.
 
 ### What is intentionally not implemented
 
-The following are acknowledged gaps, listed in *Production Improvements* rather
-than claimed as features: OTP expiry, attempt limiting, rate limiting, and
-account-enumeration protection.
+OTP expiry, attempt limiting, rate limiting and audit logging **are** implemented — see
+*Production Improvements*. The gaps that remain there (token revocation, refresh flow,
+server-side sessions, account enumeration, Flyway, phone validation) are acknowledged
+limitations rather than claimed features.
 
 ---
 
 ## Production Improvements
 
-Not implemented — each is scoped so it can be added without restructuring the code:
+### Implemented
 
-- **OTP expiry** — add `otp_expires_at` to `users`; generate with a 10-minute TTL.
-- **Maximum OTP attempts** — per-user attempt counter with a lockout window.
-- **Rate limiting** — bucket limits on `/api/auth/verify` and `/api/auth/recognize`.
+- **OTP expiry** — `users.otp_expires_at`, 10-minute TTL. Expiry is checked *before* the
+  hash comparison, and a null expiry is treated as expired rather than as valid forever.
+- **Maximum OTP attempts** — `users.otp_failed_attempts`, with `users.otp_locked_until`
+  for the lockout window (15 min). The attempt that trips the limit still reports
+  "invalid code"; the lock surfaces as `429` on the *next* attempt, so the response
+  never confirms that guesses are being counted.
+- **Rate limiting** — per-IP fixed-window limits on `POST /api/auth/verify` (10/min) and
+  `GET /api/auth/recognize` (60/min), answering `429` with `Retry-After`. Keyed on
+  `X-Forwarded-For`, because behind Vercel/Render the socket address is the proxy and
+  keying on it would rate-limit every visitor as one client.
+- **Refresh the code on each login** — a successful verification rotates the code, so a
+  code captured from the registration screen cannot be replayed. The replacement is
+  returned as `nextCode` in the login response, which is the only channel available
+  (the assignment requires codes to be shown on screen, never emailed or texted).
+- **Audit logging** — `audit_logs` records registration, every verification attempt and
+  every checkout, with the outcome and the client address. Rows never contain a code, a
+  password hash, a session token, a phone number or a shipping address, and there is
+  deliberately no foreign key to `users`, so history outlives the account.
+- **Structured logging + correlation** — every response carries `X-Request-Id` (honouring
+  a client-supplied one, after validating it), and the id is placed in the SLF4J MDC
+  under `requestId`, which the production log pattern already prints.
+- **HTTPS + secure headers** — `X-Content-Type-Options`, `X-Frame-Options`,
+  `Referrer-Policy` and `Permissions-Policy` from the API; HSTS, a strict CSP and the
+  same headers from nginx. HSTS is only emitted over an already-secure request, and is
+  forced on by the `prod` profile.
+- **Pagination** — `GET /api/checkout/history?page=0&size=20`, newest first, page size
+  capped at 100. Requires a valid session token: an unauthenticated caller could
+  otherwise read another account's orders by guessing an email.
+- **CI** — `.github/workflows/ci.yml` runs `mvn verify` (Java 21) and `npm test` plus
+  `npm run build` (Node 22) on every push and pull request.
+
+### Not implemented
+
+Each is scoped so it can be added without restructuring the code:
+
 - **Token revocation** — the session token is stateless; add a denylist or move to
   server-side sessions if immediate logout is required.
 - **Refresh flow** — the token expires after 30 minutes; a refresh path would let
@@ -697,18 +853,14 @@ Not implemented — each is scoped so it can be added without restructuring the 
 - **Server-side sessions** — replace the compact token with a session store if
   multi-device tracking or revocation is needed.
 - **Account enumeration protection** — `/api/auth/recognize` and the `409` on
-  registration both reveal whether an email exists. Constant-time responses or
-  an email-based flow would close this.
-- **Refresh the code on each login** — the code is issued once at registration;
-  rotating it per session shortens the useful life of a leaked code.
-- **Structured logging + monitoring** — request IDs, correlation IDs, metrics for
-  verification failures and checkout latency.
-- **Audit logging** — record login attempts, successful verifications and checkouts.
-- **HTTPS + secure headers** — HSTS, `X-Content-Type-Options`, CSP at the edge.
+  registration both reveal whether an email exists. This one **cannot** be closed
+  without changing the product: the checkout form is specified to branch on exactly
+  that boolean to decide between the OTP modal and guest checkout. A constant-time
+  response would hide the timing but not the answer.
 - **Database migration tool** — Flyway or Liquibase once more than one environment
-  exists; `schema.sql` is fine for a single schema.
-- **CI** — run `mvn test` and `npm test` on every push.
-- **Pagination** — checkout history is currently unpaged.
+  exists; `schema.sql` is fine for a single schema. The `ALTER` statements needed to
+  bring an existing database up to the audit/OTP columns are documented at the bottom
+  of `database/schema.sql` in the meantime.
 - **Phone validation** — the backend only checks that the phone is present and
   bounded; stricter per-country rules belong behind a library.
 
@@ -735,7 +887,9 @@ Captured from the running application (Chromium, 1280×900 unless noted):
 ## AI Assistance
 
 Built with AI assistance under direct engineering supervision. The prompts actually
-used are recorded in [`prompts.md`](prompts.md), including the ten concrete bugs
-that were found by running the builds, tests and a real browser rather than by
+used are recorded in [`prompts.md`](prompts.md), including the fifteen concrete
+bugs that were found by running the builds, tests and a real browser rather than by
 reading the code — most notably a `SERIAL` vs `bigint` schema mismatch that would
-have prevented the backend from starting in production.
+have prevented the backend from starting in production, and a login-attempt counter
+that was silently rolled back by the very exception it was meant to count, leaving
+brute-force limiting inert.

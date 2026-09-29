@@ -29,7 +29,7 @@ COPY --from=build --chown=spring:spring /workspace/target/*.jar app.jar
 EXPOSE 8080
 
 # The database schema is NOT created by the container: database/schema.sql must
-# be applied to PostgreSQL (Supabase) first, and Hibernate only validates it.
+# be applied to MySQL first, and Hibernate only validates it.
 #
 # Render assigns a dynamic PORT; Spring Boot reads it through ${PORT}.
 ENV JAVA_OPTS="-XX:MaxRAMPercentage=75 -XX:+UseSerialGC"

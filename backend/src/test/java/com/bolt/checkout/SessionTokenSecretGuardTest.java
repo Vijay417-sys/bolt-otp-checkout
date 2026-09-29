@@ -7,17 +7,21 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.context.ActiveProfiles;
-import org.springframework.test.context.TestPropertySource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Guards against shipping the local development signing secret to production.
+ *
+ * <p>No {@code @TestPropertySource} here on purpose: the secret under test is
+ * supplied directly to the constructor, and adding a property source would
+ * create a second Spring context. That matters because the test profile runs
+ * {@code database/schema.sql} on startup, and MySQL has no
+ * {@code CREATE INDEX IF NOT EXISTS}, so a second run would fail.
  */
 @SpringBootTest
 @ActiveProfiles("test")
-@TestPropertySource(properties = "session.token.secret=local-dev-only-change-me-0123456789abcdef")
 class SessionTokenSecretGuardTest {
 
     private static final String DEV_DEFAULT = "local-dev-only-change-me-0123456789abcdef";

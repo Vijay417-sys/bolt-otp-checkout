@@ -1,182 +1,367 @@
-{
-  "$schema": "https://openapi.org/schema/2.0.0.json",
-  "openapi": "2.0.0",
-  "info": {
-    "title": "Bolt OTP Checkout API",
-    "version": "1.0.0",
-    "description": "Registration with generated 6-digit login codes, background email recognition, OTP verification and checkout persistence."
-  },
-  "host": "localhost:8080",
-  "basePath": "/",
-  "schemes": ["https", "http"],
-  "consumes": ["application/json"],
-  "produces": ["application/json"],
-  "paths": {
-    "/api/health": {
-      "get": {
-        "summary": "Liveness probe used by deployment platforms",
-        "responses": {
-          "200": {
-            "description": "Service is up",
-            "schema": {
-              "type": "object",
-              "properties": { "status": { "type": "string", "example": "UP" } }
-            }
-          }
-        }
-      }
-    },
-    "/api/auth/register": {
-      "post": {
-        "summary": "Register a user and issue a 6-digit login code",
-        "description": "The plain code is returned only here so the UI can display it. Only its BCrypt hash is stored.",
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": ["email", "firstName", "lastName"],
-              "properties": {
-                "email": { "type": "string", "example": "vijay@example.com" },
-                "firstName": { "type": "string", "example": "Vijay" },
-                "lastName": { "type": "string", "example": "Hosapeti" }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Registered",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "message": { "type": "string", "example": "Registration successful" },
-                "code": { "type": "string", "example": "482193" }
-              }
-            }
-          },
-          "400": { "description": "Validation failed", "schema": { "$ref": "#/definitions/ErrorResponse" } },
-          "409": {
-            "description": "Email already registered",
-            "schema": { "$ref": "#/definitions/ErrorResponse" }
-          }
-        }
-      }
-    },
-    "/api/auth/recognize": {
-      "get": {
-        "summary": "Check whether an email belongs to a registered user",
-        "description": "Called in the background by the checkout form. Returns nothing beyond a boolean so no personal data is exposed.",
-        "parameters": [
-          { "in": "query", "name": "email", "required": true, "type": "string" }
-        ],
-        "responses": {
-          "200": {
-            "description": "Recognition result",
-            "schema": {
-              "type": "object",
-              "properties": { "registered": { "type": "boolean" } }
-            }
-          },
-          "400": { "description": "Validation failed", "schema": { "$ref": "#/definitions/ErrorResponse" } }
-        }
-      }
-    },
-    "/api/auth/verify": {
-      "post": {
-        "summary": "Verify a 6-digit login code and sign the user in",
-        "parameters": [
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": ["email", "code"],
-              "properties": {
-                "email": { "type": "string", "example": "vijay@example.com" },
-                "code": { "type": "string", "example": "482193" }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Code accepted",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "success": { "type": "boolean", "example": true },
-                "userId": { "type": "integer", "example": 1 },
-                "firstName": { "type": "string", "example": "Vijay" },
-                "lastName": { "type": "string", "example": "Hosapeti" },
-                "sessionToken": {
-                  "type": "string",
-                  "description": "Short-lived HMAC-signed token. Send as the X-Session-Token header on checkout."
-                }
-              }
-            }
-          },
-          "400": { "description": "Validation failed", "schema": { "$ref": "#/definitions/ErrorResponse" } },
-          "401": { "description": "Incorrect code", "schema": { "$ref": "#/definitions/ErrorResponse" } },
-          "404": { "description": "No account for that email", "schema": { "$ref": "#/definitions/ErrorResponse" } }
-        }
-      }
-    },
-    "/api/checkout": {
-      "post": {
-        "summary": "Persist a checkout record",
-        "description": "With a valid X-Session-Token the record is linked to the authenticated user; otherwise user_id is null (guest checkout). No payment processing is performed.",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-Session-Token",
-            "required": false,
-            "type": "string",
-            "description": "Token returned by POST /api/auth/verify."
-          },
-          {
-            "in": "body",
-            "name": "body",
-            "required": true,
-            "schema": {
-              "type": "object",
-              "required": ["email", "phone", "shippingAddress"],
-              "properties": {
-                "email": { "type": "string", "example": "vijay@example.com" },
-                "phone": { "type": "string", "example": "+919876543210" },
-                "shippingAddress": { "type": "string", "example": "Bengaluru, Karnataka, India" }
-              }
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": "Saved",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "success": { "type": "boolean", "example": true },
-                "message": { "type": "string", "example": "Checkout submitted successfully" }
-              }
-            }
-          },
-          "400": { "description": "Validation failed", "schema": { "$ref": "#/definitions/ErrorResponse" } }
-        }
-      }
-    }
-  },
-  "definitions": {
-    "ErrorResponse": {
-      "type": "object",
-      "properties": {
-        "timestamp": { "type": "string", "format": "date-time" },
-        "status": { "type": "integer", "example": 400 },
-        "message": { "type": "string", "example": "Invalid email address" },
-        "path": { "type": "string", "example": "/api/auth/register" }
-      }
-    }
-  }
-}
+# Bolt OTP Checkout API
+#
+# Machine-readable spec, identical in content to openapi.json. Generated from it, so
+# the two cannot drift apart - edit openapi.json and regenerate.
+#
+# Note: this file previously claimed to be Swagger 2.0 while being written in JSON
+# syntax, and openapi.json was OpenAPI 3.0.3. The mismatch is resolved: both are now
+# OpenAPI 3.0.3.
+$schema: https://openapi.org/schema/3.0.0.json
+openapi: 3.0.3
+info:
+  title: Bolt OTP Checkout API
+  version: 1.0.0
+  description: Registration with generated 6-digit login codes, background email recognition, OTP verification
+    and checkout persistence.
+servers:
+- url: http://localhost:8080
+  description: Local development
+paths:
+  /api/health:
+    get:
+      summary: Liveness probe used by deployment platforms
+      responses:
+        '200':
+          description: Service is up
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: UP
+  /api/auth/register:
+    post:
+      summary: Register a user and issue a 6-digit login code
+      description: The plain code is returned only here so the UI can display it. Only its BCrypt hash
+        is stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - email
+              - firstName
+              - lastName
+              properties:
+                email:
+                  type: string
+                  format: email
+                  example: vijay@example.com
+                firstName:
+                  type: string
+                  example: Vijay
+                lastName:
+                  type: string
+                  example: Hosapeti
+      responses:
+        '201':
+          description: Registered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Registration successful
+                  code:
+                    type: string
+                    example: '482193'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email already registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/auth/recognize:
+    get:
+      summary: Check whether an email belongs to a registered user
+      description: Called in the background by the checkout form. Returns nothing beyond a boolean so
+        no personal data is exposed.
+      parameters:
+      - name: email
+        in: query
+        required: true
+        schema:
+          type: string
+          format: email
+      responses:
+        '200':
+          description: Recognition result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registered:
+                    type: boolean
+              examples:
+                registered:
+                  value:
+                    registered: true
+                unknown:
+                  value:
+                    registered: false
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          description: Too many requests from this IP. A Retry-After header gives the wait in seconds.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/auth/verify:
+    post:
+      summary: Verify a 6-digit login code and sign the user in
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - email
+              - code
+              properties:
+                email:
+                  type: string
+                  format: email
+                code:
+                  type: string
+                  pattern: ^\d{6}$
+                  example: '482193'
+      responses:
+        '200':
+          description: Code accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  userId:
+                    type: integer
+                    example: 1
+                  firstName:
+                    type: string
+                    example: Vijay
+                  lastName:
+                    type: string
+                    example: Hosapeti
+                  sessionToken:
+                    type: string
+                    description: Short-lived HMAC-signed token. Send as the X-Session-Token header on
+                      checkout.
+                  nextCode:
+                    type: string
+                    pattern: ^\d{6}$
+                    example: '550214'
+                    description: A freshly rotated login code. The code is rotated on every successful
+                      login, so a code that leaked from the registration screen cannot be replayed. It
+                      is returned here because the assignment requires codes to be shown on screen and
+                      never emailed or texted - this response is the only channel by which the replacement
+                      reaches the user.
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          description: Incorrect code, or the code has expired. The two are deliberately not distinguished
+            beyond the message, so a caller cannot tell a guess that was once correct from one that never
+            was.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: No account for that email
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          description: Too many incorrect codes for this account, or too many requests from this IP. A
+            Retry-After header gives the wait in seconds.
+          headers:
+            Retry-After:
+              description: Seconds to wait before retrying.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/checkout:
+    post:
+      summary: Persist a checkout record
+      description: With a valid X-Session-Token the record is linked to the authenticated user; otherwise
+        user_id is null (guest checkout). No payment processing is performed.
+      parameters:
+      - name: X-Session-Token
+        in: header
+        required: false
+        schema:
+          type: string
+        description: Token returned by POST /api/auth/verify.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - email
+              - phone
+              - shippingAddress
+              properties:
+                email:
+                  type: string
+                  format: email
+                phone:
+                  type: string
+                  example: '+919876543210'
+                shippingAddress:
+                  type: string
+                  example: Bengaluru, Karnataka, India
+      responses:
+        '201':
+          description: Saved
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: Checkout submitted successfully
+        '400':
+          $ref: '#/components/responses/BadRequest'
+  /api/checkout/history:
+    get:
+      summary: Paged order history for the signed-in user, newest first
+      description: 'Requires a valid X-Session-Token. There is deliberately no guest path: an unauthenticated
+        caller could otherwise read another account''s orders by guessing an email. Without a token this
+        is 401 rather than an empty page, so "no orders" stays distinguishable from "not signed in".'
+      parameters:
+      - name: X-Session-Token
+        in: header
+        required: true
+        schema:
+          type: string
+        description: Token issued by POST /api/auth/verify.
+      - name: page
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+      - name: size
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+      responses:
+        '200':
+          description: One page of order history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CheckoutHistory'
+        '400':
+          description: page or size outside the allowed range
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '401':
+          description: Missing or invalid session token
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        status:
+          type: integer
+          example: 400
+        message:
+          type: string
+          example: Invalid email address
+        path:
+          type: string
+          example: /api/auth/register
+    CheckoutHistory:
+      type: object
+      properties:
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/OrderSummary'
+        page:
+          type: integer
+          example: 0
+        size:
+          type: integer
+          example: 20
+        totalElements:
+          type: integer
+          format: int64
+          example: 42
+        totalPages:
+          type: integer
+          example: 3
+        first:
+          type: boolean
+          example: true
+        last:
+          type: boolean
+          example: false
+    OrderSummary:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          example: 1
+        email:
+          type: string
+          format: email
+        phone:
+          type: string
+          example: '+919876543210'
+        shippingAddress:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+  responses:
+    BadRequest:
+      description: Validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

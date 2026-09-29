@@ -39,8 +39,8 @@
         </dependency>
 
         <dependency>
-            <groupId>org.postgresql</groupId>
-            <artifactId>postgresql</artifactId>
+            <groupId>com.mysql</groupId>
+            <artifactId>mysql-connector-j</artifactId>
             <scope>runtime</scope>
         </dependency>
 
@@ -61,10 +61,10 @@
         </dependency>
 
         <!--
-            H2 in PostgreSQL compatibility mode is used only for the automated test
+            H2 in MySQL compatibility mode is used only for the automated test
             profile so the suite runs without external infrastructure.
-            The real PostgreSQL schema in database/schema.sql is verified separately
-            against a live PostgreSQL instance (see README "Testing").
+            The real MySQL schema in database/schema.sql is verified separately
+            against a live MySQL instance (see README "Testing").
         -->
         <dependency>
             <groupId>com.h2database</groupId>
