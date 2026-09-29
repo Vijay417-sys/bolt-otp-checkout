@@ -180,6 +180,11 @@ bolt-otp-checkout/
 
 ## Local Setup
 
+> **Verifying the project?** Run [`./verify.sh`](verify.sh) for 110 automated
+> checks that need no browser and no deployment, then follow
+> [`VERIFY-BROWSER.md`](VERIFY-BROWSER.md) for the three user scenarios, the API,
+> the database rows and the Docker build.
+
 **Prerequisites** — Java 21, Maven 3.8+, Node 18+ (22 recommended), MySQL 8+
 (or Docker).
 
