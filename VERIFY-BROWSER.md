@@ -10,7 +10,23 @@ result looks like, so you can tell "it works" from "it appeared to work".
 
 ## Part 0 — Start the stack
 
-You need three terminals. Substitute your own credentials if you changed them.
+### The quick way — one command, one terminal
+
+```bash
+./run.sh
+```
+
+It checks the toolchain, applies the schema, starts the backend and frontend,
+waits for both to answer, and prints the URL. Then:
+
+```bash
+./run.sh status   # what is running
+./run.sh logs     # follow both logs
+./run.sh stop     # shut down
+```
+
+Everything below is for when you want to run the services by hand, or to
+diagnose something. Three terminals, or use `&`:
 
 ### Terminal 1 — MySQL
 

@@ -188,7 +188,27 @@ bolt-otp-checkout/
 **Prerequisites** — Java 21, Maven 3.8+, Node 18+ (22 recommended), MySQL 8+
 (or Docker).
 
+### 0. The quick way — one command, one terminal
+
+```bash
+./run.sh
+```
+
+That checks the toolchain, applies `database/schema.sql`, starts the backend and
+the frontend, waits for both to answer, and prints the URL to open. It picks free
+ports automatically, so it also works when 8080 is already taken by something else.
+
+```bash
+./run.sh status    # what is running
+./run.sh logs      # follow both service logs
+./run.sh stop      # shut everything down
+```
+
+The first run takes a minute while Maven builds the jar.
+
 ### 1. Database
+
+The database must exist before `./run.sh` can start. This is the only manual step:
 
 ```bash
 # Create the database, and a dedicated application user. The app never connects
