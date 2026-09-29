@@ -186,13 +186,25 @@ bolt-otp-checkout/
 ### 1. Database
 
 ```bash
-mysql -u root -p -e "CREATE DATABASE IF NOT EXISTS bolt_checkout;"
+# Create the database, and a dedicated application user. The app never connects
+# as root - only the least-privilege `bolt` user owns the schema.
+mysql -u root -p <<'SQL'
+CREATE DATABASE IF NOT EXISTS bolt_checkout
+  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS 'bolt'@'localhost' IDENTIFIED BY 'boltpw';
+GRANT ALL PRIVILEGES ON bolt_checkout.* TO 'bolt'@'localhost';
+FLUSH PRIVILEGES;
+SQL
+
+# Apply the schema. Safe to re-run: every statement is guarded.
 mysql -u root -p bolt_checkout < database/schema.sql
 ```
 
-Or let Docker do it: `docker compose up -d db` — the compose file mounts
-`database/schema.sql` as an init script and waits for the server to become
-healthy.
+Use the same `bolt` / `boltpw` values below, or change both to match.
+
+Or let Docker do it: `docker compose up -d db` — the compose file creates the
+user, mounts `database/schema.sql` as an init script, and waits for the server to
+become healthy.
 
 ### 2. Backend
 
@@ -200,7 +212,7 @@ healthy.
 cd backend
 cp .env.example .env        # then fill in the values
 export DATABASE_URL="jdbc:mysql://localhost:3306/bolt_checkout?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC&characterEncoding=UTF-8"
-export DATABASE_USERNAME=bolt_app
+export DATABASE_USERNAME=bolt
 export DATABASE_PASSWORD=your-password
 export SESSION_TOKEN_SECRET="$(openssl rand -base64 48)"
 mvn spring-boot:run
@@ -567,7 +579,7 @@ cd backend
 docker build -t bolt-otp-checkout-backend .
 docker run --rm -p 8080:8080 \
   -e DATABASE_URL="jdbc:mysql://host.docker.internal:3306/bolt_checkout?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC" \
-  -e DATABASE_USERNAME=bolt_app \
+  -e DATABASE_USERNAME=bolt \
   -e DATABASE_PASSWORD=your-password \
   -e CORS_ALLOWED_ORIGIN=http://localhost:5173 \
   -e SESSION_TOKEN_SECRET="$(openssl rand -base64 48)" \
