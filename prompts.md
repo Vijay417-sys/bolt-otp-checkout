@@ -83,7 +83,8 @@ category — each was discovered by executing a command, not by reading code:
 | 7 | Typing a 2nd digit into an occupied OTP box was misread as a paste | Playwright browser run | Same fix as #6 |
 | 8 | After a failed OTP, focus was lost because `focus()` ran while inputs were `disabled` | Playwright browser run | `pendingFocusRef` + effect that focuses after re-enable |
 | 9 | "Go to checkout" prefilled the **OTP code** into the email field | Playwright browser run | Pass the normalised email to `onRegistered` |
-| 10 | Browser preflight returned **403 Invalid CORS request** | Playwright browser run | Stale JAR was running; rebuilt and restarted with `CORS_ALLOWED_ORIGIN` |
+| 10 | Browser preflight returned **403 Invalid CORS request** | Playwright browser run | A stale JAR was still running; rebuilt and restarted with `CORS_ALLOWED_ORIGIN` |
+| 11 | `SessionTokenService` allowed the dev-default signing secret on the prod profile | Self-review of the security posture | Fail-fast guard that refuses to start when `prod` is active and the default is in use |
 
 Bug #5 is the most significant: it would have made the application **fail to
 start in production**, because `ddl-auto=validate` compares the JPA entities

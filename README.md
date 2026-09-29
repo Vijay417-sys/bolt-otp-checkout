@@ -16,7 +16,7 @@ paths persist a checkout record to PostgreSQL.
 | **Frontend** | React 18 + JavaScript (ES6+) + Vite + Tailwind CSS |
 | **Backend** | Java 21, Spring Boot 3.4, Spring Data JPA, Hibernate |
 | **Database** | PostgreSQL 14+ (Supabase in production) |
-| **Tests** | 34 backend (JUnit 5 + MockMvc), 57 frontend (Vitest + Testing Library) |
+| **Tests** | 38 backend (JUnit 5 + MockMvc), 57 frontend (Vitest + Testing Library) |
 | **Deploy** | Vercel (frontend) · Render + Docker (backend) · Supabase (PostgreSQL) |
 
 ---
@@ -473,7 +473,7 @@ lookup — so `Vijay@Example.com` and `vijay@example.com` are the same account.
 
 ## Testing
 
-### Backend — 34 tests
+### Backend — 38 tests
 
 ```bash
 cd backend
@@ -486,6 +486,7 @@ mvn test
 | `CheckoutApiTest` | 8 | Guest checkout (`user_id` null), authenticated checkout, forged token fallback, validation 400, malformed JSON, repeated orders, history preserved on user delete |
 | `AuthServiceTest` | 9 | 2,000 generated codes are always 6 digits, codes differ, hash matches, BCrypt salting, case-insensitive duplicates, typed exceptions, name trimming |
 | `SessionTokenServiceTest` | 5 | Round-trip, tampered payload, tampered signature, malformed tokens, opacity |
+| `SessionTokenSecretGuardTest` | 4 | Refuses to start on the prod profile with the development default secret |
 
 The test profile loads the **real `database/schema.sql`** into H2 in PostgreSQL
 compatibility mode and runs Hibernate with `validate` — the same setting as
