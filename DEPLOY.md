@@ -4,42 +4,35 @@ The assignment asks for the app to be **deployed**. This is the order to do it i
 with the traps called out. Follow it top to bottom — the order matters, because
 each step needs the URL from the previous one.
 
-Target shape:
+This describes the deployment that is **live**. For the running application see the
+[Live Demo](README.md#live-demo) section of the README.
 
 ```
-Vercel  (React)  ──HTTPS──►  Render  (Spring Boot, Docker)  ──JDBC──►  MySQL 8
+Render Static Site  ──HTTPS──►  Render Web Service  ──JDBC──►  Aiven MySQL
+   (React, Vite)                   (Spring Boot, Docker)
 ```
 
----
+| Component | Platform | URL |
+|---|---|---|
+| Frontend | Render Static Site | https://bolt-otp-checkout-web.onrender.com |
+| Backend | Render Web Service (Docker) | https://bolt-otp-checkout-api.onrender.com |
+| Database | Aiven MySQL (`defaultdb`) | — |
 
-## ⚠️ Read this first: Supabase cannot host MySQL
-
-The original assignment names **Supabase PostgreSQL** as the database. You changed
-the project to **MySQL**, and Supabase only offers PostgreSQL — there is no way to
-point it at a MySQL database.
-
-So you must pick one, and say which you did:
-
-| Option | What you do |
-|---|---|
-| **Keep MySQL** (current code) | Use a MySQL provider — TiDB Cloud, Aiven, Railway, DigitalOcean, AWS RDS, or your own server. Note the deviation in the README. |
-| **Use Supabase** | Revert to PostgreSQL: driver, `schema.sql`, dialect, compose file. The Java code is otherwise unchanged. |
-
-MySQL providers with a free tier to try: **TiDB Cloud** (MySQL-compatible, serverless
-free tier) or **Aiven** (free hobby plan). **PlanetScale** no longer has a free tier.
-
-Everything below assumes **MySQL**.
+> **On the database choice.** The assignment recommended PostgreSQL (via Supabase).
+> Supabase hosts PostgreSQL only and cannot serve MySQL, so this project uses **MySQL**
+> on Aiven instead. The assignment permitted using the technology the candidate was
+> comfortable with; only the persistence layer differs.
 
 ---
 
 ## Step 0 — Push to GitHub first
 
-Render and Vercel both deploy from a Git repository, so this has to happen before
-either of them.
+Render deploys from a Git repository, so this has to happen first. It is already done
+for the live deployment; the commands are kept for reference.
 
 ```bash
 cd /home/vijay-hosapeti/Desktop/BOLT/bolt-otp-checkout
-git remote add origin https://github.com/<your-user>/bolt-otp-checkout.git
+git remote add origin https://github.com/Vijay417-sys/bolt-otp-checkout.git
 git push -u origin main
 ```
 
@@ -115,18 +108,18 @@ Must print `{"status":"UP"}`.
 
 ---
 
-## Step 3 — Frontend on Vercel
+## Step 3 — Frontend as a Render Static Site
 
-1. **New Project** → import the same repo.
+1. **New → Static Site** → connect the same repository.
 2. **Root Directory**: `frontend`
-3. Framework preset *Vite* is detected. Build `npm run build`, output `dist`.
-4. **Settings → Environment Variables**:
+3. Build command `npm run build`, publish directory `dist`.
+4. **Environment Variables**:
 
 | Key | Value |
 |---|---|
-| `VITE_API_BASE_URL` | `https://<your-service>.onrender.com` — **no trailing slash** |
+| `VITE_API_BASE_URL` | `https://bolt-otp-checkout-api.onrender.com` — **no trailing slash** |
 
-5. Deploy. Note the URL: `https://<your-project>.vercel.app`
+5. Deploy. The live site is https://bolt-otp-checkout-web.onrender.com
 
 > `VITE_*` values are **baked in at build time**. Changing it later needs a
 > redeploy, not just a save.
@@ -135,15 +128,15 @@ Must print `{"status":"UP"}`.
 
 ## Step 4 — Fix CORS (the step everyone forgets)
 
-The frontend origin did not exist when you set `CORS_ALLOWED_ORIGIN` in step 2, so
-the deployed app cannot call the API yet. Every request will fail.
+The frontend origin did not exist when `CORS_ALLOWED_ORIGIN` was first set on the
+backend, so the deployed app cannot call the API until this is done. Every request
+fails with a CORS error.
 
-1. On Render, edit the env var:
-   `CORS_ALLOWED_ORIGIN` = `https://<your-project>.vercel.app`
+1. On Render, edit the backend's env var:
+   `CORS_ALLOWED_ORIGIN` = `https://bolt-otp-checkout-web.onrender.com`
 2. **Save and redeploy the backend.**
 
-Multiple origins are comma-separated:
-`https://a.vercel.app,https://b.vercel.app`
+Multiple origins are comma-separated.
 
 ---
 
@@ -198,10 +191,10 @@ should return the value in its comment.
 | Symptom | Cause | Fix |
 |---|---|---|
 | Frontend says "Unable to reach the server" | `VITE_API_BASE_URL` wrong, or the backend is asleep | Check the value has no trailing slash; wake the Render service |
-| Every API call fails CORS | Step 4 skipped | Add the Vercel origin to `CORS_ALLOWED_ORIGIN`, redeploy |
+| Every API call fails CORS | Step 4 skipped | Add the frontend origin to `CORS_ALLOWED_ORIGIN`, redeploy |
 | Backend won't start | Bad `DATABASE_URL` or credentials | Read the Render log; check the JDBC params |
 | Backend exits at once on `prod` | `SESSION_TOKEN_SECRET` left at the dev default | Generate a real one — the app refuses to start otherwise |
 | `Table 'bolt_checkout.users' doesn't exist` | Schema not applied | Run step 1.2 against the deployed database |
 | First request hangs ~50 s | Free Render instance woke up | Expected; it warms up |
-| Changes not showing | `VITE_*` baked at build | Redeploy on Vercel, don't just save |
+| Changes not showing | `VITE_*` baked at build | Redeploy the static site, don't just save |
 | `ddl-auto=validate` failure | Schema and entities drifted | Re-apply `schema.sql`; do not set `ddl-auto=update` |
